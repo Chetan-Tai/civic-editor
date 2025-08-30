@@ -12,8 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>
+    <>
         <header style={{ padding: "12px", borderBottom: "1px solid #eee" }}>
           <nav style={{ display: "flex", gap: "12px" }}>
             <a href="/happy">happy</a>
@@ -22,7 +21,6 @@ export default function RootLayout({
         </header>
 
         <main style={{ padding: "16px" }}>{children}</main>
-      </body>
-    </html>
+      </>
   );
 }
