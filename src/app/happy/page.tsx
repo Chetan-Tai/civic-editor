@@ -4,9 +4,9 @@ export default function HappyPage() {
   return (
     <section>
         {/* Simple title */}
-        <h1>Happy Editor</h1>
-        <p style={{ color: "#666", marginBottom: "12px" }}>
-            Type here - we'll add a <code>/rewrite</code> to make text happier.
+        <h1 className="text-xl">Happy Editor</h1>
+        <p className="text-gray-600 mb-4">
+            Type here and watch your text get happier :)
         </p>
 
         <PlateEditor mode = "happy" />
