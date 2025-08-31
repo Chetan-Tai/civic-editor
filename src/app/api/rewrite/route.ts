@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 function buildPrompt(text: string, mode: "happy" | "sad") {
     const instruction =
         mode === "happy"
-        ? "Rewrite this to sound positive, upbeat, and encouraging while preserving the meaning."
-        : "Rewrite this to sound negative/pessimistic while preserving the meaning.";
-    return `${instruction}\n\nText: """${text}"""\n\nRewritten:`;
+        ? "Rewrite this to sound positive, upbeat, and encouraging while preserving the meaning. Return ONLY the rewritten sentence without quotes."
+        : "Rewrite this to sound negative/pessimistic while preserving the meaning. Return ONLY the rewritten sentence without quotes.";
+    return `${instruction}\n\nSentence: """${text}"""\n\nRewritten:`;
 }
 
 export async function POST(req: Request) {
