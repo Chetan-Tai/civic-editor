@@ -17,7 +17,9 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "slate-history": "^0.113.1",
-    "slate-hyperscript": "^0.100.0"
+    "slate-hyperscript": "^0.100.0",
+    "y-webrtc": "^10.3.0",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
