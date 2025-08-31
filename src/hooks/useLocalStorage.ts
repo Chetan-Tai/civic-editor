@@ -1,21 +1,25 @@
-import * as React from "react";
+import { useState, useEffect } from "react";
 
-export function useLocalStorage<T>(key: string, initial: T) {
-    const [state, setState] = React.useState<T>(initial);
+export function useLocalStorage<T>(key: string, initialValue: T) {
+    const [value, setValue] = useState<T>(initialValue);
+    const [loaded, setLoaded] = useState(false);
 
-    React.useEffect(() => {
+    useEffect(() => {
+        if (typeof window === "undefined") return;
         try {
-        const raw = localStorage.getItem(key);
-        if (raw) setState(JSON.parse(raw) as T);
+            const item = window.localStorage.getItem(key);
+            if (item) setValue(JSON.parse(item));
         } catch {}
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        setLoaded(true);
     }, [key]);
 
-    React.useEffect(() => {
+    useEffect(() => {
+        if (!loaded) return;
+        if (typeof window === "undefined") return;
         try {
-        localStorage.setItem(key, JSON.stringify(state));
+            window.localStorage.setItem(key, JSON.stringify(value));
         } catch {}
-    }, [key, state]);
+    }, [key, value, loaded]);
 
-    return [state, setState] as const;
+    return [value, setValue, loaded] as const;
 }
