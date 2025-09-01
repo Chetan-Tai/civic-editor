@@ -10,13 +10,13 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { QuotePopover } from "@/components/ui/quote-popover";
 
 import { HAPPY_QUOTES, SAD_QUOTES } from "@/lib/quotes";
-
 import { YjsPlugin } from "@platejs/yjs/react";
 import { Editor, Transforms } from "slate";
 
 type Mode = "happy" | "sad";
 type PlateEditorProps = { mode: Mode };
 
+// ---- helpers ----
 function asSingleParagraph(text: string): Value {
   return [{ type: "p", children: [{ text }] }];
 }
@@ -25,7 +25,9 @@ function toPlainText(value: Value): string {
   return (value as any[])
     .map((n: any) =>
       Array.isArray(n?.children)
-        ? n.children.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("")
+        ? n.children
+            .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
+            .join("")
         : ""
     )
     .join("\n");
@@ -106,15 +108,45 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     [roomId]
   );
 
+  // Connect Yjs
   React.useEffect(() => {
     const api = editor.getApi(YjsPlugin);
     api.yjs.init({ id: roomId, autoSelect: "end" });
     return () => api.yjs.destroy();
   }, [editor, roomId]);
 
+  // One-time seed per room if doc is empty (prevents blank after refresh on new rooms)
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seededKey = `room-seeded:${roomId}`;
+    if (localStorage.getItem(seededKey)) return;
+
+    const current = (editor as any).children as Value | undefined;
+    const hasText =
+      Array.isArray(current) &&
+      current.some((n: any) =>
+        Array.isArray(n?.children)
+          ? n.children.some((c: any) => typeof c?.text === "string" && c.text.trim().length > 0)
+          : false
+      );
+
+    if (hasText) return;
+
+    const seed = (stored && (stored as any[]).length > 0) ? stored : initialValue;
+
+    Editor.withoutNormalizing(editor as any, () => {
+      while ((editor as any).children.length > 0) {
+        Transforms.removeNodes(editor as any, { at: [0] });
+      }
+      Transforms.insertNodes(editor as any, seed, { at: [0] });
+    });
+
+    localStorage.setItem(seededKey, "1");
+  }, [editor, roomId, stored]);
+
+  // Local fallback when NOT connected (kept from your version)
   React.useEffect(() => {
     if (!loaded) return;
-
     const isConnected =
       (editor as any).getOptions?.(YjsPlugin)?._isConnected ??
       (editor as any).getApi?.(YjsPlugin)?.yjs?.isConnected ??
@@ -193,16 +225,14 @@ export function PlateEditor({ mode }: PlateEditorProps) {
   }, []);
 
   const renderLeaf = React.useCallback((props: any) => {
-    const { attributes, children, leaf, text } = props;
+    const { attributes, children, leaf } = props;
 
     if (leaf?.happy || leaf?.sad) {
       const kind: "happy" | "sad" = leaf.happy ? "happy" : "sad";
-
       const pathPart = Array.isArray(leaf?.__path) ? leaf.__path.join(".") : "p";
       const start = typeof leaf?.__start === "number" ? leaf.__start : 0;
       const end = typeof leaf?.__end === "number" ? leaf.__end : 0;
       const stableKey = `${pathPart}:${start}-${end}`;
-
       const quote = pickDeterministicQuoteByKey(kind, stableKey);
 
       return (
