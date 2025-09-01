@@ -10,7 +10,6 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { QuotePopover } from "@/components/ui/quote-popover";
 
 import { HAPPY_QUOTES, SAD_QUOTES } from "@/lib/quotes";
-
 import { YjsPlugin } from "@platejs/yjs/react";
 import { Editor, Transforms } from "slate";
 
@@ -44,7 +43,7 @@ function findKeywordRanges(text: string) {
   return out.sort((a, b) => a.start - b.start);
 }
 
-// ---- deterministic quote picker (by a stable key) ----
+// deterministic quote picker (by a stable key)
 function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -86,10 +85,11 @@ export function PlateEditor({ mode }: PlateEditorProps) {
   const [isRewriting, setIsRewriting] = React.useState(false);
 
   // ---- editor + yjs (public webrtc signaling) ----
+  // IMPORTANT: start with a neutral value; we will seed via yjs.init
   const editor = React.useMemo(
     () =>
       createPlateEditor({
-        value: stored, // local fallback; Yjs sync will take over
+        value: initialValue,
         plugins: [
           paragraphPlugin,
           YjsPlugin.configure({
@@ -112,13 +112,41 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     [roomId]
   );
 
+  // 1) Connect Yjs and seed ONCE PER ROOM from localStorage if the room is empty.
   React.useEffect(() => {
-    const api = editor.getApi(YjsPlugin);
-    api.yjs.init({ id: roomId, autoSelect: "end" });
-    return () => api.yjs.destroy();
-  }, [editor, roomId]);
+    if (!loaded) return;
 
-  // hydrate from localStorage only if NOT connected to yjs
+    const api = editor.getApi(YjsPlugin);
+
+    const seededKey = `yjs-seeded:${roomId}`;
+    const hasSeeded =
+      typeof window !== "undefined" && sessionStorage.getItem(seededKey) === "1";
+
+    const seedValue =
+      !hasSeeded && Array.isArray(stored) && stored.length > 0 ? stored : !hasSeeded ? initialValue : undefined;
+
+    api.yjs.init({
+      id: roomId,
+      autoSelect: "end",
+      value: seedValue, // only provided once per session so we don't duplicate
+    });
+
+    if (!hasSeeded) {
+      try {
+        sessionStorage.setItem(seededKey, "1");
+      } catch {}
+    }
+
+    return () => {
+      // Avoid noisy errors if already disconnected
+      try {
+        api.yjs.destroy();
+      } catch {}
+    };
+    // IMPORTANT: do NOT include `stored` here—re-init would happen on every keystroke
+  }, [editor, roomId, loaded]);
+
+  // 2) Local fallback when NOT connected (so single-user still persists)
   React.useEffect(() => {
     if (!loaded) return;
 
@@ -138,11 +166,11 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     }
   }, [stored, loaded, editor]);
 
-  // on change
+  // 3) Persist *every* change (local or remote via Yjs) to localStorage
   const handlePlateChange = React.useCallback(
     ({ value: next }: { value: Value }) => {
       setValue(next);
-      if (loaded) setStored(next);
+      if (loaded) setStored(next); // this captures remote Yjs changes too
     },
     [loaded, setStored]
   );
@@ -194,9 +222,9 @@ export function PlateEditor({ mode }: PlateEditorProps) {
           anchor: { path, offset: hit.start },
           focus: { path, offset: hit.end },
           [hit.type]: true,
-          __start: hit.start,     // <- carry offsets
+          __start: hit.start,
           __end: hit.end,
-          __path: path,           // <- carry path
+          __path: path,
         });
       }
     }
@@ -205,17 +233,14 @@ export function PlateEditor({ mode }: PlateEditorProps) {
 
   // renderLeaf with deterministic quotes keyed by (path + offsets)
   const renderLeaf = React.useCallback((props: any) => {
-    const { attributes, children, leaf, text } = props;
+    const { attributes, children, leaf } = props;
 
     if (leaf?.happy || leaf?.sad) {
       const kind: "happy" | "sad" = leaf.happy ? "happy" : "sad";
-
-      // build a stable key for this exact occurrence
       const pathPart = Array.isArray(leaf?.__path) ? leaf.__path.join(".") : "p";
       const start = typeof leaf?.__start === "number" ? leaf.__start : 0;
       const end = typeof leaf?.__end === "number" ? leaf.__end : 0;
       const stableKey = `${pathPart}:${start}-${end}`;
-
       const quote = pickDeterministicQuoteByKey(kind, stableKey);
 
       return (
