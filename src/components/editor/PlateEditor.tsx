@@ -10,6 +10,7 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { QuotePopover } from "@/components/ui/quote-popover";
 
 import { HAPPY_QUOTES, SAD_QUOTES } from "@/lib/quotes";
+
 import { YjsPlugin } from "@platejs/yjs/react";
 import { Editor, Transforms } from "slate";
 
@@ -25,9 +26,7 @@ function toPlainText(value: Value): string {
   return (value as any[])
     .map((n: any) =>
       Array.isArray(n?.children)
-        ? n.children
-            .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
-            .join("")
+        ? n.children.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("")
         : ""
     )
     .join("\n");
@@ -45,6 +44,7 @@ function findKeywordRanges(text: string) {
   return out.sort((a, b) => a.start - b.start);
 }
 
+// ---- deterministic quote picker (by a stable key) ----
 function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -57,9 +57,11 @@ function pickDeterministicQuoteByKey(kind: "happy" | "sad", key: string): string
 }
 
 export function PlateEditor({ mode }: PlateEditorProps) {
+  // SSR guard
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
 
+  // ---- room (from URL hash; updates live) ----
   const defaultRoom = mode === "happy" ? "civic-room-happy" : "civic-room-sad";
   const [roomId, setRoomId] = React.useState<string>(() => {
     if (typeof window === "undefined") return defaultRoom;
@@ -77,15 +79,17 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     return () => window.removeEventListener("hashchange", onHash);
   }, [defaultRoom]);
 
+  // ---- persistence ----
   const storageKey = mode === "happy" ? "civic-doc-happy" : "civic-doc-sad";
   const [stored, setStored, loaded] = useLocalStorage<Value>(storageKey, initialValue);
   const [value, setValue] = React.useState<Value>(stored);
   const [isRewriting, setIsRewriting] = React.useState(false);
 
+  // ---- editor + yjs (public webrtc signaling) ----
   const editor = React.useMemo(
     () =>
       createPlateEditor({
-        value: stored,
+        value: stored, // local fallback; Yjs sync will take over
         plugins: [
           paragraphPlugin,
           YjsPlugin.configure({
@@ -108,45 +112,16 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     [roomId]
   );
 
-  // Connect Yjs
   React.useEffect(() => {
     const api = editor.getApi(YjsPlugin);
     api.yjs.init({ id: roomId, autoSelect: "end" });
     return () => api.yjs.destroy();
   }, [editor, roomId]);
 
-  // One-time seed per room if doc is empty (prevents blank after refresh on new rooms)
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const seededKey = `room-seeded:${roomId}`;
-    if (localStorage.getItem(seededKey)) return;
-
-    const current = (editor as any).children as Value | undefined;
-    const hasText =
-      Array.isArray(current) &&
-      current.some((n: any) =>
-        Array.isArray(n?.children)
-          ? n.children.some((c: any) => typeof c?.text === "string" && c.text.trim().length > 0)
-          : false
-      );
-
-    if (hasText) return;
-
-    const seed = (stored && (stored as any[]).length > 0) ? stored : initialValue;
-
-    Editor.withoutNormalizing(editor as any, () => {
-      while ((editor as any).children.length > 0) {
-        Transforms.removeNodes(editor as any, { at: [0] });
-      }
-      Transforms.insertNodes(editor as any, seed, { at: [0] });
-    });
-
-    localStorage.setItem(seededKey, "1");
-  }, [editor, roomId, stored]);
-
-  // Local fallback when NOT connected (kept from your version)
+  // hydrate from localStorage only if NOT connected to yjs
   React.useEffect(() => {
     if (!loaded) return;
+
     const isConnected =
       (editor as any).getOptions?.(YjsPlugin)?._isConnected ??
       (editor as any).getApi?.(YjsPlugin)?.yjs?.isConnected ??
@@ -163,6 +138,7 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     }
   }, [stored, loaded, editor]);
 
+  // on change
   const handlePlateChange = React.useCallback(
     ({ value: next }: { value: Value }) => {
       setValue(next);
@@ -171,6 +147,7 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     [loaded, setStored]
   );
 
+  // apply /rewrite
   const handleApplyRewrite = React.useCallback(
     (rewritten: string) => {
       const newValue = asSingleParagraph(rewritten);
@@ -191,10 +168,12 @@ export function PlateEditor({ mode }: PlateEditorProps) {
     [editor, loaded, setStored]
   );
 
+  // detect /rewrite
   React.useEffect(() => {
     setIsRewriting(/\/rewrite\s*$/i.test(toPlainText(value).trim()));
   }, [value]);
 
+  // decorate — add offsets & path so the quote key is stable per token
   const decorate = React.useCallback(({ entry }: { entry: any }) => {
     if (!Array.isArray(entry) || entry.length < 2) return [];
     const [node, path] = entry as [any, any];
@@ -215,24 +194,28 @@ export function PlateEditor({ mode }: PlateEditorProps) {
           anchor: { path, offset: hit.start },
           focus: { path, offset: hit.end },
           [hit.type]: true,
-          __start: hit.start,
+          __start: hit.start,     // <- carry offsets
           __end: hit.end,
-          __path: path,
+          __path: path,           // <- carry path
         });
       }
     }
     return ranges;
   }, []);
 
+  // renderLeaf with deterministic quotes keyed by (path + offsets)
   const renderLeaf = React.useCallback((props: any) => {
-    const { attributes, children, leaf } = props;
+    const { attributes, children, leaf, text } = props;
 
     if (leaf?.happy || leaf?.sad) {
       const kind: "happy" | "sad" = leaf.happy ? "happy" : "sad";
+
+      // build a stable key for this exact occurrence
       const pathPart = Array.isArray(leaf?.__path) ? leaf.__path.join(".") : "p";
       const start = typeof leaf?.__start === "number" ? leaf.__start : 0;
       const end = typeof leaf?.__end === "number" ? leaf.__end : 0;
       const stableKey = `${pathPart}:${start}-${end}`;
+
       const quote = pickDeterministicQuoteByKey(kind, stableKey);
 
       return (
@@ -240,7 +223,7 @@ export function PlateEditor({ mode }: PlateEditorProps) {
           <QuotePopover
             trigger={
               <span
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()} // keep caret stable
                 style={{
                   cursor: "pointer",
                   textDecoration: "underline dotted",
