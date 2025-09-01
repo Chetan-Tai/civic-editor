@@ -19,7 +19,6 @@ type AISlashCommandProps = {
   value: Value;
   mode: RewriteMode;
   onApply: (rewritten: string) => void;
-  /** Provide a Yjs meta map getter from the editor (optional; passed from PlateEditor) */
   getYMeta?: () => any | null;
 };
 
@@ -28,21 +27,16 @@ export function AISlashCommand({ value, mode, onApply, getYMeta }: AISlashComman
   const [busy, setBusy] = React.useState(false);
   const lastInputRef = React.useRef<string>("");
 
-  // Small helper: acquire & release a shared Yjs lock
   const runRewriteOnceSafely = React.useCallback(
     async (fn: () => Promise<string>) => {
       const yMeta = getYMeta?.();
-      // If no Yjs (or not connected), just run locally:
       if (!yMeta) return fn();
 
-      // already locked? then someone else will produce the answer; do nothing
       if (yMeta.get("rewriteLock")) return null;
 
-      // acquire lock
       yMeta.set("rewriteLock", true);
       try {
         const out = await fn();
-        // optional metadata
         yMeta.set("lastRewriteAt", Date.now());
         return out;
       } finally {
@@ -67,10 +61,8 @@ export function AISlashCommand({ value, mode, onApply, getYMeta }: AISlashComman
       try {
         setBusy(true);
         const maybe = await runRewriteOnceSafely(async () => {
-          // one caller will do the API call (temp=0 on server)
           return await rewrite(input, mode);
         });
-        // If null, another tab is doing it; just wait for Yjs to sync result.
         if (maybe != null) onApply(maybe);
       } catch (e) {
         onApply(`(Rewrite failed) ${e instanceof Error ? e.message : String(e)}`);

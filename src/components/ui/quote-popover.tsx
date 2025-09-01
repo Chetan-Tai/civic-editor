@@ -1,4 +1,3 @@
-// src/components/ui/quote-popover.tsx
 "use client";
 
 import * as React from "react";
@@ -15,7 +14,6 @@ export function QuotePopover({ trigger, quote }: QuotePopoverProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {/* prevent caret jump; allow click to open */}
         <span onMouseDown={(e) => e.preventDefault()} role="button" tabIndex={0} style={{ cursor: "pointer" }}>
           {trigger}
         </span>

@@ -1,4 +1,3 @@
-// src/components/editor/CollaborationPlugin.tsx
 "use client";
 
 import * as React from "react";
@@ -6,10 +5,6 @@ import type { Value } from "platejs";
 import type { TPlateEditor } from "platejs/react";
 import * as Y from "yjs";
 
-/**
- * Listens to Yjs and reports remote value via onRemoteValue.
- * No editor.onChange subscription here.
- */
 export function CollaborationPlugin({
   editor,
   doc,
@@ -30,7 +25,6 @@ export function CollaborationPlugin({
       onRemoteValue(next);
     };
 
-    // initial seed if remote has data
     applyFromY();
 
     const observer = () => applyFromY();
@@ -38,7 +32,6 @@ export function CollaborationPlugin({
     return () => yContent.unobserve(observer);
   }, [yContent, onRemoteValue]);
 
-  // Optional status pill
   return (
     <div
       aria-label={`room-${roomId}`}

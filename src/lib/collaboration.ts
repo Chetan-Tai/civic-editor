@@ -13,24 +13,19 @@ export type CollabHandle = {
 export function startWebRTCCollab(roomId: string): CollabHandle {
   const doc = new Y.Doc();
 
-  // Public demo server from Yjs (good for testing)
-  // If your network blocks it, we can run a local server instead.
   const provider = new WebsocketProvider(
-    "wss://demos.yjs.dev", // websocket endpoint
+    "wss://demos.yjs.dev",
     roomId,
     doc,
     {
       connect: true,
-      // params: {}, // you can add query params if needed
     }
   );
 
-  // Basic status logs to confirm connection
   provider.on("status", (event: any) => {
-    console.log("[y-websocket] status:", event.status); // "connected" / "disconnected"
+    console.log("[y-websocket] status:", event.status);
   });
 
-  // simple presence info
   const palette = ["#0ea5e9", "#f97316", "#10b981", "#a855f7", "#ef4444", "#f59e0b"];
   const color = palette[Math.floor(Math.random() * palette.length)];
   provider.awareness.setLocalStateField("user", { name: "Guest", color });
